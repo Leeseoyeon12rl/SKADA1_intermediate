@@ -1,0 +1,77 @@
+import pandas as pd
+df_train = pd.read_csv('./dataset/SKHY_train.txt', delimiter=',', header=0)
+df_test = pd.read_csv('./dataset/SKHY_test_answer.txt', delimiter=',', header=0)
+
+fig = plt.figure(figsize = (10,5))
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+
+start_i, end_i = 10000, 20000
+picoseconds = df_train.iloc[start_i:end_i, 0] * 1e+12 # 첫번째 열의 데이터는 시간을 나타냅니다.
+for i in range(1, len(df_train.columns)):
+    plt.plot(picoseconds, df_train.iloc[start_i:end_i, i], label = df_train.columns[i]) # 두번째 열부터의 데이터는 전압값을 나타냅니다.
+
+fig, axes = plt.subplots(2, 3, figsize = (20,10))
+start_i, end_i = 10000, 20000
+for h in range(axes.shape[0]):
+    for w in range(axes.shape[1]):
+        ax = axes[h, w]
+        ax.set_xlabel(df_train.columns[0])
+        # h행, w열의 subplot의 y축 label은 dataframe의 h * 3 + w + 1 번째 열의 header 이름으로 설정합니다.
+        ax.set_ylabel(df_train.columns[h * axes.shape[1] + w +1]) 
+        ax.set_ylim(0.6, 1.3)
+        
+        ax.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, df_train.iloc[start_i:end_i, h * axes.shape[1] + w +1])
+plt.show()
+
+train_valid_ratio = 0.9 # 학습용 데이터와 검증용 데이터의 비율을 9:1로 설정합니다.
+train_len = int(df_train.shape[0] * train_valid_ratio)
+valid_len = df_train.shape[0] - train_len
+test_len = df_test.shape[0]
+print('#train: {}, #valid: {}, #test: {}'.format(train_len, valid_len, test_len))
+#train: 407054, #valid: 45229, #test: 193836
+
+train_data = {
+    'time': df_train.iloc[:, 0].values[:train_len],
+    'X': df_train.iloc[:, 1].values[:train_len],
+    'y': df_train.iloc[:, 2:].values[:train_len]
+}
+valid_data = {
+    'time': df_train.iloc[:, 0].values[train_len:],
+    'X': df_train.iloc[:, 1].values[train_len:],
+    'y': df_train.iloc[:, 2:].values[train_len:]
+}
+test_data = {
+    'time': df_test.iloc[:, 0].values,
+    'X': df_test.iloc[:, 1].values,
+    'y': df_test.iloc[:, 2:].values
+}
+
+# 정규화
+X_mean = train_data['X'].mean()
+X_std = train_data['X'].std()
+print('학습용 데이터 X의 평균: {}, 표준편차: {}'.format(X_mean, X_std))
+
+X_train = (train_data['X'] - X_mean) / X_std
+X_train = X_train.reshape(-1, 1)
+
+X_valid = (valid_data['X'] - X_mean) / X_std
+X_valid = X_valid.reshape(-1, 1)
+
+X_test = (test_data['X'] - X_mean) / X_std
+X_test = X_test.reshape(-1, 1)
+
+y_mean = train_data['y'].mean(axis=0)
+y_std = train_data['y'].std(axis=0)
+print('학습용 데이터 X의 평균: {}, 표준편차: {}'.format(y_mean, y_std))
+학습용 데이터 X의 평균: [1.03309848 0.96738386 0.93425816 0.89572486 0.85570616], 표준편차: [0.15680612 0.19285169 0.19235427 0.17190273 0.13654631]
+
+# 검증용 출력 데이터 정규화
+y_valid = (valid_data['y'] - y_mean) / y_std
+# 테스트용 출력 데이터 정규화
+y_test = (test_data['y'] - y_mean) / y_std
+
+# 검증용 출력 데이터 정규화
+y_valid = (valid_data['y'] - y_mean) / y_std
+# 테스트용 출력 데이터 정규화
+y_test = (test_data['y'] - y_mean) / y_std
