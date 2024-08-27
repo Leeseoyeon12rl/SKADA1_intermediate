@@ -1,0 +1,131 @@
+여태까지의 실습에서는 한 시점의 입력값만을 사용하여 출력 전압을 예측하도록 모델을 훈련하였습니다. 그러나, 출력값을 올바르게 예측하기 위해서는 한 시점 뿐만이 아니라, 그 이전 시점들에서의 입력 전압값들이 중요할 수 있습니다. 우리가 다루고 있는 전압 파형 데이터는 시계열 데이터이기 때문입니다.
+모델의 성능을 향상시키기 위하여 지금부터는 입력값으로 여러 시점의 입력 전압을 주도록 데이터를 수정해보겠습니다.
+
+def process_data(X, y, num_sequences, stride = 1):
+    X_ = []
+    for i in range(0, num_sequences):
+        X_.append(X[i:len(X) - num_sequences + 1 + i])
+    X_ = np.asarray(X_)[:, ::stride].transpose().reshape(-1, num_sequences)
+    return X_, y[num_sequences - 1::stride]
+입력 데이터가 num_sequences 동안의 입력값을 가지고, 입력 데이터 사이의 간격이 stride가 되도록 처리하는 process_data 함수를 정의합니다. 이 때, 출력값 y는 입력값의 마지막 시점에서의 출력값입니다.
+
+num_sequences = 50
+stride = 1
+X_train2, y_train2 = process_data(X_train, y_train, num_sequences, stride)
+X_test2, y_test2 = process_data(X_test, y_test, num_sequences, stride)
+num_sequences는 50, stride는 1로 설정하여 데이터를 수정합니다.
+
+print('X_train2 shape: {}, y_train2 shape: {}'.format(X_train2.shape, y_train2.shape))
+print('X_test2 shape: {}, y_test2 shape: {}'.format(X_test2.shape, y_test2.shape))
+X_train2 shape: (407005, 50), y_train2 shape: (407005, 5)
+X_test2 shape: (193787, 50), y_test2 shape: (193787, 5)
+입력데이터가 num_sequences 동안의 입력값 데이터를 누적하여 50차원으로 변환되었습니다.
+
+불러온 데이터는 한 시점의 입력 전압(X)과 출력 전압(y)이 pair되어 있습니다. 이 데이터를 활용하여 한 시점의 입력 전압으로부터 그 시점의 출력 전압을 예측하는 회귀 모델을 생성해보겠습니다.
+
+# 모델 생성
+model = LinearRegression()
+# 모델 훈련
+model.fit(X_train2, y_train2) 
+# 출력값 예측
+pred = model.predict(X_test2) 
+# 오차 계산
+error = mse(y_test2, pred) 
+print('최소 제곱 선형 회귀 모델의 오차: {}'.format(error))
+최소 제곱 선형 회귀 모델의 오차: 0.32847136852890557
+
+# 정답 그래프 그리기
+fig = plt.figure(figsize = (10,5))
+plt.title('Ground truth')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test2[:, -1:], y_test2], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
+# 예측 그래프 그리기
+fig = plt.figure(figsize = (10,5))
+plt.title('Model prediction')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test2[:, -1:], pred], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
+
+
+
+#####################################################
+
+
+
+Ridge 선형 회귀 모델은 최소제곱 선형회귀 모델을 개량한 모델입니다.
+
+# 모델 생성
+model = Ridge() 
+# 모델 훈련
+model.fit(X_train2, y_train2) 
+# 출력값 예측
+pred = model.predict(X_test2) 
+# 오차 계산
+error = mse(y_test2, pred) 
+print('Ridge 선형 회귀 모델의 오차: {}'.format(error))
+Ridge 선형 회귀 모델의 오차: 0.33075132428713055
+
+# 정답 그래프 그리기
+fig = plt.figure(figsize = (10,5))
+plt.title('Ground truth')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test2[:, -1:], y_test2], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
+# 예측 그래프 그리기
+fig = plt.figure(figsize = (10,5))
+plt.title('Model prediction')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test2[:, -1:], pred], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
+
+
+
+##############################################################
+
+
+
+다음으로는 다중 퍼셉트론 (multi layer perceptron, MLP) 회귀 모델을 활용해보겠습니다. 가장 단순한 형태의 뉴럴넷 모델이며, 앞선 회귀 모델과 다르게 비선형적 모델링이 가능합니다.
+
+# 모델 생성
+model = MLPRegressor(hidden_layer_sizes=(32,32))
+# 모델 학습
+model.fit(X_train2, y_train2)
+# 모델 예측
+pred = model.predict(X_test2)
+# 모델 평가
+error = mse(y_test2, pred)
+print('MLP 회귀 모델의 오차: {}'.format(error))
+MLP 회귀 모델의 오차: 0.016162037427602288
+비선형 모델을 적용하니 오차가 많이 줄었습니다.
+
+# 정답 그래프 그리기
+fig = plt.figure(figsize = (10,5))
+plt.title('Ground truth')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test2[:, -1:], y_test2], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
+# 예측 그래프 그리기
+fig = plt.figure(figsize = (10,5))
+plt.title('Model prediction')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test2[:, -1:], pred], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
