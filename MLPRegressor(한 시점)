@@ -1,0 +1,28 @@
+from sklearn.neural_network import MLPRegressor
+
+model = MLPRegressor(hidden_layer_sizes=(32,32))
+model.fit(X_train, y_train)
+pred = model.predict(X_test)
+
+error = mse(y_test, pred)
+print('MLP 회귀 모델의 오차: {}'.format(error))
+MLP 회귀 모델의 오차: 0.18051953749003574
+
+# 정답 그래프 그리기
+fig = plt.figure(figsize = (10,5))
+plt.title('Ground truth')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test, y_test], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
+# 예측 그래프 그리기
+fig = plt.figure(figsize = (10,5))
+plt.title('Model prediction')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test, pred], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
