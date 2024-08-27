@@ -1,0 +1,282 @@
+import numpy as np
+
+RNN 기반의 모델에 적용하기 위해 입력 데이터 (X)는 [#data, #sequence, #dimension]의 shape을 가져야 합니다. #data는 데이터의 개수이고, #sequence는 window size이며, #dimension은 입력 데이터의 차원을 의미합니다.
+
+# 읽어온 데이터를 시계열 데이터로 변환해줍니다.
+def process_data(X, y, num_sequences, stride = 1, interval = 1):
+    X_ = []
+    for i in range(0, num_sequences * interval, interval):
+        X_.append(X[i:len(X) - num_sequences * interval + 1 + i])
+    X_ = np.asarray(X_)[:, ::stride].transpose().reshape(-1, num_sequences, 1)
+    return X_, y[num_sequences * interval-1::stride]
+읽어온 데이터는 입력 데이터의 shape이 [#data, #dimension]입니다. 이를 시계열 데이터의 형식으로 바꾸어주는 process_data 함수를 정의하였습니다. num_sequences 매개변수는 window_size를 의미하고, stride는 각 sequence 데이터 사이의 시간 간격을 의미합니다. interval은 같은 window를 구성하는 데이터 간의 시간 간격을 의미합니다. 이때, 출력값 y가 입력값의 마지막 시점에서의 출력값이 되도록 합니다.
+
+num_sequences = 150
+stride = 1
+interval = 3
+X_train2, y_train2 = process_data(X_train, y_train, num_sequences, stride, interval)
+X_valid2, y_valid2 = process_data(X_valid, y_valid, num_sequences, stride, interval)
+X_test2, y_test2 = process_data(X_test, y_test, num_sequences, stride, interval)
+Window size (num_sequences)는 150, stride는 1, interval은 3으로 설정하여 시계열 데이터를 생성합니다.
+
+print('X_train2 shape: {}, y_train2 shape: {}'.format(X_train2.shape, y_train2.shape))
+print('X_valid2 shape: {}, y_valid2 shape: {}'.format(X_valid2.shape, y_valid2.shape))
+print('X_test2 shape: {}, y_test2 shape: {}'.format(X_test2.shape, y_test2.shape))
+X_train2 shape: (406605, 150, 1), y_train2 shape: (406605, 5)
+X_valid2 shape: (44780, 150, 1), y_valid2 shape: (44780, 5)
+X_test2 shape: (193387, 150, 1), y_test2 shape: (193387, 5)
+변환한 데이터의 입력값이 [#data, #sequence, #dimension]의 shape을 가지고, 입력 데이터와 출력 데이터의 개수가 같음을 확인할 수 있습니다. 다음으로, 데이터를 시각화 해보겠습니다.
+
+from matplotlib import pyplot as plt
+%matplotlib inline
+
+data_i = 6000 # 시각화할 데이터의 index
+
+fig = plt.figure(figsize = (10,5))
+plt.title('Timeseries data at index {}'.format(data_i))
+plt.xlabel('Time')
+plt.ylabel('Values')
+
+X = X_train2[data_i]
+y = y_train2[data_i]
+plt.plot(np.arange(len(X)), X[:, 0], label = 'input_V')
+for i in range(len(y)):
+    plt.scatter(len(X)-1, y[i], label = 'output_V %d'%(i+1))
+
+plt.legend()
+plt.show()  
+
+
+
+
+
+시계열 데이터를 이용하여 RNN 기반의 딥러닝 모델을 학습하고, 예측 및 평가해보겠습니다. pytorch 라이브러리를 활용하여 대표적인 RNN 기반 모델인 LSTM과 GRU를 학습시켜 보겠습니다.
+import numpy as np
+import torch
+from tqdm import tqdm
+
+seed = 0
+np.random.seed(seed)
+torch.manual_seed(seed)
+<torch._C.Generator at 0x7fb2e0457cf0>
+
+numpy와 pytorch를 import 해줍니다. pytorch는 import torch를 통해 불러올 수 있습니다. pytorch는 facebook이 개발한 파이썬 오픈소스 머신러닝 라이브러리로, tensorflow와 더불어 가장 많이 사용되는 신경망 라이브러리입니다. 결과 재현이 쉽도록 random seed를 0으로 고정해줍니다.
+
+가장 먼저, 대표적인 RNN 모델인 long short term memory (LSTM) 모델을 학습시켜보겠습니다.
+
+class LSTM(torch.nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, num_layers):
+        super(LSTM, self).__init__()
+        self.lstm = torch.nn.LSTM(input_size = input_size, hidden_size = hidden_size, num_layers = num_layers, batch_first = True)
+        self.fc = torch.nn.Linear(hidden_size, output_size)
+
+    def forward(self, X):
+        y, (hidden_states, cell_states) = self.lstm(X)
+        y = self.fc(y[:, -1])
+        return y
+LSTM 모델의 class를 정의합니다. torch.nn.module은 pytorch 내 모든 신경망의 기본 class입니다. LSTM class의 생성자에서 self.lstm에 LSTM 네트워크를 정의합니다. input_size는 입력데이터의 차원을, hidden_size는 은닉층의 유닛 수를, num_layers는 은닉층의 깊이를 의미합니다. batch_first 가 True로 설정되면 입력 데이터가 (batch, sequence, feature) 순으로, False이면 (sequence, batch, first) 순으로 구성되어야 합니다. 우리가 사용하는 데이터는 (batch, sequence, feature) 순으로 되어있으므로, batch_first = True로 설정합니다. LSTM을 통과한 후, 최종 출력의 차원을 출력 데이터의 차원과 맞춰주기 위해 마지막 fully connected layer을 추가해줍니다. 여기서, output_size는 최종 출력의 차원입니다.
+
+forward 메소드 내부에 모델의 forward pass를 구현합니다. forward pass의 입력 매개변수로 입력 데이터 X를 넣어줍니다. 생성자에서 정의한 self.lstm에 입력 데이터를 넣어줄 때, hidden state와 cell state를 따로 명시하지 않으면 자동으로 0-vector (원소가 모두 0인 벡터)로 초기화 됩니다. self.lstm(X)는 LSTM을 통과한 후의 출력값과 states를 반환합니다. 마지막으로, LSTM을 통과한 출력값을 fully conneceted layer에 통과시킨 출력값 y를 반환합니다. 이 때, forward pass를 위한 메소드의 이름은 반드시 forward여야 함에 유의하세요.
+
+모델을 학습할 때 전체 데이터에 대해 한꺼번에 학습계수를 갱신하면 메모리를 과도하게 사용하게 되고 과적합이 발생할 수 있습니다. 따라서 일반적으로 딥러닝 모델을 학습할 때에 데이터를 mini-batch 로 나누어 학습하는 stochastic gradient descent 방법을 활용합니다. 이를 위해 학습 시 데이터를 batch size 만큼 불러온 후 모델에 입력하여 학습하여야 하는데, 이로 인해 코드가 복잡해지고 가독성이 떨어질 수 있습니다.
+
+Pytorch는 데이터를 불러오는 부분에서의 코드를 간결화하기 위해 Dataset과 DataLoader 클래스를 제공합니다. Dataset에서 입력데이터와 출력데이터를 매칭하여 저장하며, DataLoader에서 매 학습 iteration마다 데이터를 batch size만큼 불러올 수 있습니다.
+
+from torch.utils.data import Dataset
+
+class CustomDataset(Dataset):
+    def __init__(self, X, y):
+        self.X = torch.FloatTensor(X)
+        self.y = torch.FloatTensor(y)
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, index):
+        X = self.X[index]
+        y = self.y[index]
+        return X, y
+먼저 Dataset을 상속받는 CustomDataset class를 정의합니다. 생성자에서 입력데이터와 출력데이터를 저장합니다. numpy array 형식인 데이터를 torch.FloatTensor(...)를 이용하여 pytorch tensor 형식으로 변환해줍니다. __len__(...) 메소드는 전체 데이터의 개수를 반환합니다. __getitem__(self, index)는 index 번째 데이터를 반환합니다.
+
+training_set = CustomDataset(X=X_train2, y=y_train2)
+valid_set = CustomDataset(X=X_valid2, y=y_valid2)
+X에 입력데이터를, y에 출력 데이터를 넣어 Dataset 객체를 생성합니다.
+
+from torch.utils.data import DataLoader
+
+batch_size = 256
+train_dataloader = DataLoader(training_set, batch_size=batch_size, num_workers=3, shuffle=True)
+valid_dataloader = DataLoader(valid_set, batch_size=batch_size, shuffle=False)
+학습 시 데이터를 사용자가 설정한 batch size 만큼만 불러올 수 있도록 하기 위해 pytorch 에서 DataLoader 클래스를 이용할 수 있습니다. 이 때, shuffle = True로 설정하여 매 에폭마다 데이터가 잘 섞일 수 있도록 해줍니다.
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+input_size = X_train2.shape[-1]
+output_size = y_train2.shape[-1]
+hidden_size = 32
+num_layers = 2
+lstm_model = LSTM(input_size = input_size, hidden_size = hidden_size, output_size = output_size, num_layers = num_layers)
+lstm_model.to(device)
+LSTM(
+  (lstm): LSTM(1, 32, num_layers=2, batch_first=True)
+  (fc): Linear(in_features=32, out_features=5, bias=True)
+)
+두 개 층의 LSTM 레이어로 구성된 모델을 생성해보았습니다. 입력 데이터 (X_train2)의 차원은 1이므로, input_size = 1로 설정합니다. 각 레이어의 유닛 수는 32로 설정하였고, 마지막 dense layer의 출력 차원은 proj_size = 5로 출력 데이터 y의 차원과 같은 5로 설정합니다.
+
+criterion = torch.nn.MSELoss()
+optimizer = torch.optim.Adam(lstm_model.parameters(), lr=0.01)
+학습 loss는 mean squared error를 이용하며, optimizer는 Adam optimzier를 이용합니다. 학습률은 0.01로 설정합니다.
+
+EPOCHS = 10
+max_iter = 50
+학습 batch size는 256으로 설정하고, 총 10 에폭 동안 학습합니다. 각 에폭마다 최대 iteration 수는 50으로 설정합니다.
+
+history = {
+    'training_loss': [],
+    'validation_loss': []
+}
+
+for epoch in range(1, EPOCHS + 1):
+    # 모델 학습을 위해 gradient를 계산하도록 설정합니다.
+    lstm_model.train()
+    
+    epoch_loss = 0
+    pbar = tqdm(train_dataloader)
+    i = 0
+    for data in pbar:
+        if i >= max_iter:
+            break
+        
+        X_batch, y_batch = data
+        X_batch = X_batch.to(device)
+        y_batch = y_batch.to(device)
+        
+        pred = lstm_model(X_batch)
+        loss = criterion(pred, y_batch)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        i += 1
+        epoch_loss += loss.item()
+        pbar.set_description(f'[Epoch {epoch}/{EPOCHS}] loss = {loss:.5e}')
+    
+    # 검증: 학습을 위한 단계가 아니므로, gradient를 계산하지 않도록 합니다.
+    lstm_model.eval()
+    valid_loss = 0
+    i = 0
+    for data in valid_dataloader:
+        if i >= max_iter:
+            break
+        
+        X_batch, y_batch = data
+        X_batch = X_batch.to(device)
+        y_batch = y_batch.to(device)
+        
+        pred = lstm_model(X_batch)
+        loss = criterion(pred, y_batch)
+        
+        valid_loss += loss.item()
+    
+    print(
+        f'Train loss: {epoch_loss / min(len(train_dataloader), max_iter):.5e}, '
+        f'Valid loss: {valid_loss / min(len(valid_dataloader), max_iter):.5e}'
+    )
+    
+    history['training_loss'].append(epoch_loss / min(len(train_dataloader), max_iter))
+    history['validation_loss'].append(valid_loss / min(len(valid_dataloader), max_iter))
+
+[Epoch 1/10] loss = 1.10159e-02:   3%|▎         | 50/1589 [00:29<15:09,  1.69it/s]
+  0%|          | 0/1589 [00:00<?, ?it/s]
+Train loss: 1.35939e-01, Valid loss: 3.56382e-02
+[Epoch 2/10] loss = 5.91445e-03:   3%|▎         | 50/1589 [00:34<17:42,  1.45it/s] 
+  0%|          | 0/1589 [00:00<?, ?it/s]
+Train loss: 7.42178e-03, Valid loss: 2.05592e-02
+[Epoch 3/10] loss = 5.29261e-03:   3%|▎         | 50/1589 [00:34<17:29,  1.47it/s] 
+  0%|          | 0/1589 [00:00<?, ?it/s]
+Train loss: 5.66167e-03, Valid loss: 1.84317e-02
+[Epoch 4/10] loss = 4.23139e-03:   3%|▎         | 50/1589 [00:41<21:05,  1.22it/s] 
+  0%|          | 0/1589 [00:00<?, ?it/s]
+Train loss: 4.93046e-03, Valid loss: 1.63044e-02
+[Epoch 5/10] loss = 2.86248e-03:   3%|▎         | 50/1589 [00:36<18:43,  1.37it/s] 
+  0%|          | 0/1589 [00:00<?, ?it/s]
+Train loss: 3.38778e-03, Valid loss: 9.73951e-03
+[Epoch 6/10] loss = 1.72694e-03:   3%|▎         | 50/1589 [00:37<19:17,  1.33it/s] 
+  0%|          | 0/1589 [00:00<?, ?it/s]
+Train loss: 1.94871e-03, Valid loss: 6.04133e-03
+[Epoch 7/10] loss = 1.43831e-03:   3%|▎         | 50/1589 [00:32<16:50,  1.52it/s] 
+  0%|          | 0/1589 [00:00<?, ?it/s]
+Train loss: 1.47716e-03, Valid loss: 4.45086e-03
+[Epoch 8/10] loss = 1.21449e-03:   3%|▎         | 50/1589 [00:32<16:34,  1.55it/s] 
+  0%|          | 0/1589 [00:00<?, ?it/s]
+Train loss: 1.26651e-03, Valid loss: 3.92709e-03
+[Epoch 9/10] loss = 1.03229e-03:   3%|▎         | 50/1589 [00:33<16:59,  1.51it/s] 
+  0%|          | 0/1589 [00:00<?, ?it/s]
+Train loss: 1.13641e-03, Valid loss: 3.63229e-03
+[Epoch 10/10] loss = 8.26727e-04:   3%|▎         | 50/1589 [00:33<17:08,  1.50it/s] 
+Train loss: 1.06056e-03, Valid loss: 2.84850e-03
+모델을 학습합니다. 매 에폭이 끝날때마다 검증용 데이터를 이용하여 loss를 확인해봅니다. 또한, 매 에폭마다 학습 로스와 검증 로스를 history 딕셔너리에 추가해줍니다.
+
+train_loss = history['training_loss']
+val_loss = history['validation_loss']
+
+epochs_range = range(EPOCHS)
+
+plt.figure(figsize=(10, 5))
+plt.plot(epochs_range, train_loss, label='Training Loss')
+plt.plot(epochs_range, val_loss, label='Validation Loss')
+plt.legend(loc='upper right')
+plt.title('Training and Validation Loss')
+plt.show()
+
+test_set = CustomDataset(X=X_test2, y=y_test2)
+test_dataloader = DataLoader(test_set, batch_size=1024, shuffle=False)
+lstm_model.eval()
+test_loss = 0
+preds = []
+for data in tqdm(test_dataloader):
+    X_batch, y_batch = data
+    X_batch = X_batch.to(device)
+    y_batch = y_batch.to(device)
+
+    pred = lstm_model(X_batch)
+    loss = criterion(pred, y_batch)
+    
+    test_loss += loss.item()
+    preds.append(pred.detach().cpu().numpy())
+    
+preds = np.concatenate(preds, axis=0)
+print(f'Test loss: {test_loss / len(test_dataloader):.5e}')
+100%|██████████| 189/189 [02:35<00:00,  1.22it/s]
+Test loss: 8.08772e-04
+
+# 모델 성능 평가
+def mse(gt, pred):
+    data_len = len(gt)
+    
+    return ((gt - pred) ** 2).sum() / data_len
+error = mse(preds, y_test2)
+print(f'LSTM 모델의 오차: {error:.5e}')
+LSTM 모델의 오차: 4.04646e-03
+
+start_i, end_i = 10000, 20000
+
+fig = plt.figure(figsize = (10,5))
+plt.title('Ground truth')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test2[:,-1:, 0], y_test2], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
+
+fig = plt.figure(figsize = (10,5))
+plt.title('Model prediction')
+plt.xlabel('Time (picoseconds)')
+plt.ylabel('Values')
+for i, data in enumerate(np.concatenate([X_test2[:,-1:, 0], preds], axis=1).transpose()):
+    plt.plot(df_train.iloc[start_i:end_i, 0] * 1e+12, data[start_i:end_i], label = df_train.columns[i+1])
+plt.legend(loc = 'upper right')
+plt.show()
+실제 출력전압과 유사하게 예측해내었음을 확인할 수 있습니다.
